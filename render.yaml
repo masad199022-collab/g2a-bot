@@ -1,0 +1,15 @@
+services:
+  - type: worker
+    name: g2a-telegram-bot
+    env: node
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: G2A_EMAIL
+        sync: false
+      - key: G2A_PASSWORD
+        sync: false
+      - key: TG_TOKEN
+        sync: false
+      - key: TG_CHAT_ID
+        sync: false
