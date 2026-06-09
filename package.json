@@ -1,0 +1,21 @@
+في خانة **"Name your file..."** اكتب:
+
+**package.json**
+
+ثم في المحرر أدناه احذف النص الموجود والصق هذا:
+
+```json
+{
+  "name": "g2a-telegram-bot",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "node-fetch": "^2.7.0"
+  }
+}
+```
+
+بعدين اضغط **Commit changes** الأخضر في أعلى اليمين.
