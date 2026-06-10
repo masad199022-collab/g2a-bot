@@ -24,11 +24,7 @@ async function tg(text) {
     await fetch('https://api.telegram.org/bot' + CONFIG.TG_TOKEN + '/sendMessage', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({
-        chat_id: CONFIG.TG_CHAT_ID,
-        text: text,
-        parse_mode: 'HTML'
-      })
+      body: JSON.stringify({ chat_id: CONFIG.TG_CHAT_ID, text: text, parse_mode: 'HTML' })
     });
   } catch(e) { log('TG Error: ' + e.message); }
 }
@@ -37,18 +33,30 @@ async function getToken() {
   if (cachedToken && Date.now() < tokenExpiry) return cachedToken;
   log('Refreshing G2A token...');
   try {
-    const r = await fetch('https://api.g2a.com/v1/users/sign_in', {
+    const params = new URLSearchParams();
+    params.append('grant_type', 'password');
+    params.append('username', CONFIG.G2A_EMAIL);
+    params.append('password', CONFIG.G2A_PASSWORD);
+
+    const r = await fetch('https://www.g2a.com/oauth/token', {
       method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ email: CONFIG.G2A_EMAIL, password: CONFIG.G2A_PASSWORD })
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'User-Agent': 'Mozilla/5.0'
+      },
+      body: params.toString()
     });
-    if (!r.ok) { log('Login failed: ' + r.status); return null; }
-    const d = await r.json();
+
+    log('Login status: ' + r.status);
+    const text = await r.text();
+    log('Login response: ' + text.substring(0, 200));
+
+    const d = JSON.parse(text);
     const token = d.access_token || d.token;
     if (token) {
       cachedToken = token;
       tokenExpiry = Date.now() + CONFIG.TOKEN_TTL;
-      log('Token refreshed OK');
+      log('Token OK');
     }
     return token;
   } catch(e) { log('Error: ' + e.message); return null; }
@@ -58,12 +66,9 @@ async function check() {
   checkCount++;
   log('Check #' + checkCount);
   const token = await getToken();
-  if (!token) return;
+  if (!token) { log('No token, skip'); return; }
 
-  const h = {
-    'Authorization': 'Bearer ' + token,
-    'Content-Type': 'application/json'
-  };
+  const h = { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' };
 
   try {
     const or = await fetch('https://api.g2a.com/v1/seller/orders?status=pending&per_page=10', { headers: h });
@@ -75,8 +80,7 @@ async function check() {
         const prev = lastOrders.split(',');
         for (const o of orders) {
           if (!prev.includes(String(o.id))) {
-            const msg = '🛒 <b>New G2A Order!</b>\n\nProduct: ' + (o.product_name || 'N/A') + '\nOrder: #' + o.id + '\nPrice: ' + (o.price || '') + ' ' + (o.currency || '') + '\n\n<a href="https://dashboard.g2a.com/store/your-offers">Open G2A Dashboard</a>';
-            await tg(msg);
+            await tg('🛒 <b>New G2A Order!</b>\n\nProduct: ' + (o.product_name || 'N/A') + '\nOrder: #' + o.id + '\n\n<a href="https://dashboard.g2a.com/store/your-offers">Open G2A</a>');
             log('New order: #' + o.id);
           }
         }
@@ -93,8 +97,7 @@ async function check() {
         const prev = lastMsgs.split(',');
         for (const m of msgs) {
           if (!prev.includes(String(m.id))) {
-            const msg = '💬 <b>New Message from Buyer!</b>\n\nBuyer: ' + (m.buyer_username || 'N/A') + '\n\n<a href="https://dashboard.g2a.com/store/your-offers">Open G2A Dashboard</a>';
-            await tg(msg);
+            await tg('💬 <b>New Message!</b>\n\nBuyer: ' + (m.buyer_username || 'N/A') + '\n\n<a href="https://dashboard.g2a.com/store/your-offers">Open G2A</a>');
             log('New message from: ' + (m.buyer_username || 'buyer'));
           }
         }
@@ -108,7 +111,7 @@ async function check() {
 
 async function start() {
   log('G2A Bot started - KeyZon Ventures');
-  await tg('🟢 <b>G2A Notifier is running!</b>\n\nMonitoring your orders and messages every minute.');
+  await tg('🟢 <b>G2A Notifier is running!</b>\n\nMonitoring every minute.');
   await check();
   setInterval(check, CONFIG.CHECK_INTERVAL);
 }
