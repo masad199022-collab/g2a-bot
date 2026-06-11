@@ -39,7 +39,7 @@ async function getToken() {
     params.append('client_id', CONFIG.G2A_CLIENT_ID);
     params.append('client_secret', CONFIG.G2A_CLIENT_SECRET);
 
-    const r = await fetch('https://www.g2a.com/oauth/token', {
+    const r = await fetch('https://api.g2a.com/oauth/token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: params.toString()
@@ -47,7 +47,7 @@ async function getToken() {
 
     log('Token status: ' + r.status);
     const text = await r.text();
-    log('Token response: ' + text.substring(0, 200));
+    log('Token response: ' + text.substring(0, 300));
 
     const d = JSON.parse(text);
     const token = d.access_token || d.token;
@@ -57,7 +57,7 @@ async function getToken() {
       log('Token OK');
     }
     return token;
-  } catch(e) { log('Error: ' + e.message); return null; }
+  } catch(e) { log('Token error: ' + e.message); return null; }
 }
 
 async function check() {
@@ -69,14 +69,14 @@ async function check() {
   const h = { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' };
 
   try {
-    // فحص الطلبات
     const or = await fetch('https://api.g2a.com/v1/seller/orders?status=pending&per_page=10', { headers: h });
+    log('Orders status: ' + or.status);
     if (or.ok) {
       const d = await or.json();
       const orders = d.orders || d.data || [];
       const ids = orders.map(function(o) { return String(o.id); }).join(',');
       if (lastOrders !== null && ids !== lastOrders) {
-        const prev = lastOrders.split(',');
+        const prev = lastOrders ? lastOrders.split(',') : [];
         for (const o of orders) {
           if (!prev.includes(String(o.id))) {
             await tg(
@@ -94,14 +94,14 @@ async function check() {
       lastOrders = ids;
     }
 
-    // فحص الرسائل
     const mr = await fetch('https://api.g2a.com/v1/seller/conversations?status=unread&per_page=10', { headers: h });
+    log('Messages status: ' + mr.status);
     if (mr.ok) {
       const d = await mr.json();
       const msgs = d.conversations || d.data || [];
       const ids = msgs.map(function(m) { return String(m.id); }).join(',');
       if (lastMsgs !== null && ids !== lastMsgs) {
-        const prev = lastMsgs.split(',');
+        const prev = lastMsgs ? lastMsgs.split(',') : [];
         for (const m of msgs) {
           if (!prev.includes(String(m.id))) {
             await tg(
@@ -117,14 +117,14 @@ async function check() {
       lastMsgs = ids;
     }
 
-    // فحص التقييمات السلبية
     const rr = await fetch('https://api.g2a.com/v1/seller/reviews?rating=1,2&per_page=10', { headers: h });
+    log('Reviews status: ' + rr.status);
     if (rr.ok) {
       const d = await rr.json();
       const reviews = d.reviews || d.data || [];
       const ids = reviews.map(function(r) { return String(r.id); }).join(',');
       if (lastReviews !== null && ids !== lastReviews) {
-        const prev = lastReviews.split(',');
+        const prev = lastReviews ? lastReviews.split(',') : [];
         for (const r of reviews) {
           if (!prev.includes(String(r.id))) {
             const stars = r.rating == 1 ? '⭐' : '⭐⭐';
