@@ -1,18 +1,19 @@
 const fetch = require('node-fetch');
 
 const CONFIG = {
-  G2A_EMAIL:    process.env.G2A_EMAIL,
-  G2A_PASSWORD: process.env.G2A_PASSWORD,
-  TG_TOKEN:     process.env.TG_TOKEN,
-  TG_CHAT_ID:   process.env.TG_CHAT_ID,
-  CHECK_INTERVAL: 60 * 1000,
-  TOKEN_TTL: 23 * 60 * 60 * 1000,
+  G2A_CLIENT_ID:     process.env.G2A_CLIENT_ID,
+  G2A_CLIENT_SECRET: process.env.G2A_CLIENT_SECRET,
+  TG_TOKEN:          process.env.TG_TOKEN,
+  TG_CHAT_ID:        process.env.TG_CHAT_ID,
+  CHECK_INTERVAL:    60 * 1000,
+  TOKEN_TTL:         23 * 60 * 60 * 1000,
 };
 
 let cachedToken = null;
 let tokenExpiry = 0;
 let lastOrders = null;
 let lastMsgs = null;
+let lastReviews = null;
 let checkCount = 0;
 
 function log(msg) {
@@ -34,22 +35,19 @@ async function getToken() {
   log('Refreshing G2A token...');
   try {
     const params = new URLSearchParams();
-    params.append('grant_type', 'password');
-    params.append('username', CONFIG.G2A_EMAIL);
-    params.append('password', CONFIG.G2A_PASSWORD);
+    params.append('grant_type', 'client_credentials');
+    params.append('client_id', CONFIG.G2A_CLIENT_ID);
+    params.append('client_secret', CONFIG.G2A_CLIENT_SECRET);
 
     const r = await fetch('https://www.g2a.com/oauth/token', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'User-Agent': 'Mozilla/5.0'
-      },
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: params.toString()
     });
 
-    log('Login status: ' + r.status);
+    log('Token status: ' + r.status);
     const text = await r.text();
-    log('Login response: ' + text.substring(0, 200));
+    log('Token response: ' + text.substring(0, 200));
 
     const d = JSON.parse(text);
     const token = d.access_token || d.token;
@@ -71,6 +69,7 @@ async function check() {
   const h = { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' };
 
   try {
+    // فحص الطلبات
     const or = await fetch('https://api.g2a.com/v1/seller/orders?status=pending&per_page=10', { headers: h });
     if (or.ok) {
       const d = await or.json();
@@ -80,7 +79,14 @@ async function check() {
         const prev = lastOrders.split(',');
         for (const o of orders) {
           if (!prev.includes(String(o.id))) {
-            await tg('🛒 <b>New G2A Order!</b>\n\nProduct: ' + (o.product_name || 'N/A') + '\nOrder: #' + o.id + '\n\n<a href="https://dashboard.g2a.com/store/your-offers">Open G2A</a>');
+            await tg(
+              '🛒 <b>طلب جديد!</b>\n\n' +
+              '📦 المنتج: ' + (o.product_name || 'غير محدد') + '\n' +
+              '🔢 رقم الطلب: #' + o.id + '\n' +
+              '💰 السعر: ' + (o.price || '') + ' ' + (o.currency || '') + '\n' +
+              '⏰ ' + new Date().toLocaleTimeString('ar-SA', {hour12:false}) + '\n\n' +
+              '👉 <a href="https://dashboard.g2a.com/store/your-offers">افتح لوحة G2A</a>'
+            );
             log('New order: #' + o.id);
           }
         }
@@ -88,6 +94,7 @@ async function check() {
       lastOrders = ids;
     }
 
+    // فحص الرسائل
     const mr = await fetch('https://api.g2a.com/v1/seller/conversations?status=unread&per_page=10', { headers: h });
     if (mr.ok) {
       const d = await mr.json();
@@ -97,12 +104,43 @@ async function check() {
         const prev = lastMsgs.split(',');
         for (const m of msgs) {
           if (!prev.includes(String(m.id))) {
-            await tg('💬 <b>New Message!</b>\n\nBuyer: ' + (m.buyer_username || 'N/A') + '\n\n<a href="https://dashboard.g2a.com/store/your-offers">Open G2A</a>');
+            await tg(
+              '💬 <b>رسالة جديدة من عميل!</b>\n\n' +
+              '👤 العميل: ' + (m.buyer_username || 'غير محدد') + '\n' +
+              '⏰ ' + new Date().toLocaleTimeString('ar-SA', {hour12:false}) + '\n\n' +
+              '👉 <a href="https://dashboard.g2a.com/store/your-offers">افتح لوحة G2A</a>'
+            );
             log('New message from: ' + (m.buyer_username || 'buyer'));
           }
         }
       }
       lastMsgs = ids;
+    }
+
+    // فحص التقييمات السلبية
+    const rr = await fetch('https://api.g2a.com/v1/seller/reviews?rating=1,2&per_page=10', { headers: h });
+    if (rr.ok) {
+      const d = await rr.json();
+      const reviews = d.reviews || d.data || [];
+      const ids = reviews.map(function(r) { return String(r.id); }).join(',');
+      if (lastReviews !== null && ids !== lastReviews) {
+        const prev = lastReviews.split(',');
+        for (const r of reviews) {
+          if (!prev.includes(String(r.id))) {
+            const stars = r.rating == 1 ? '⭐' : '⭐⭐';
+            await tg(
+              '⚠️ <b>تقييم سلبي جديد!</b>\n\n' +
+              stars + ' التقييم: ' + r.rating + '/5\n' +
+              '👤 العميل: ' + (r.reviewer_username || 'غير محدد') + '\n' +
+              '📝 التعليق: ' + (r.comment || 'بدون تعليق') + '\n' +
+              '⏰ ' + new Date().toLocaleTimeString('ar-SA', {hour12:false}) + '\n\n' +
+              '👉 <a href="https://dashboard.g2a.com/store/your-offers">افتح لوحة G2A</a>'
+            );
+            log('Negative review: ' + r.id);
+          }
+        }
+      }
+      lastReviews = ids;
     }
 
     log('Check OK');
@@ -111,7 +149,7 @@ async function check() {
 
 async function start() {
   log('G2A Bot started - KeyZon Ventures');
-  await tg('🟢 <b>G2A Notifier is running!</b>\n\nMonitoring every minute.');
+  await tg('🟢 <b>بوت G2A يعمل الآن!</b>\n\nيراقب:\n🛒 الطلبات الجديدة\n💬 رسائل العملاء\n⚠️ التقييمات السلبية\n\nفحص كل دقيقة.');
   await check();
   setInterval(check, CONFIG.CHECK_INTERVAL);
 }
